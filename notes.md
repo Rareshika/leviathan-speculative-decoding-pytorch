@@ -3,3 +3,4 @@ Notes to include in the README.md at some point:
 * Tried using hand written prompts, wiki headlines and even hand-written prompts.
 * Switched to the Pythia family by EleutherAI. The target model will be the 1.4b parameters version and the draft model will be the 160M parameters version.
 * Models from the same training family are the canonical setup for speculative decoding experiments, as they maximize draft-target alignment and isolate the algorithm's behavior from distribution mismatch noise.
+* After adding KV caching to the autoregresssive baseline, the two methods stopped having an exact match. This is because of tiny floating point arithmetics in Pytorch. Even a tiny difference of $10^-7$ can make a huge difference for flipping the argmax of greedy decoding.
