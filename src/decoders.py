@@ -38,7 +38,11 @@ class SpeculativeDecoder:
         self.tokenizer = tokenizer
         self.gamma = gamma
         self.device = device
-        self.vocab_size = len(self.tokenizer)
+        self.vocab_size = min(
+            len(tokenizer),
+            target_model.config.vocab_size,
+            draft_model.config.vocab_size,
+        )
 
         self.target_model_name = target_model_name or _infer_model_name(self.target_model)
         self.draft_model_name = draft_model_name or _infer_model_name(self.draft_model)
@@ -71,7 +75,8 @@ class SpeculativeDecoder:
                     output = self.target_model(current_input, past_key_values=target_past, use_cache=True)
                     target_past = output.past_key_values
 
-                    last_token_logits = output.logits[0, -1, :self.vocab_size]
+                    logits = self._truncate_logits(output)
+                    last_token_logits = logits[-1, :]
                     final_id, _ = sample_and_get_probas(last_token_logits, temperature)
                     sequence[current_length] = final_id
                     current_length += 1
@@ -142,6 +147,9 @@ class SpeculativeDecoder:
 
         return draft_past, target_past
 
+    def _truncate_logits(self, output):
+        return output.logits[0, :, :self.vocab_size]
+
     def _draft_tokens(self, draft_steps, draft_past, sequence, current_length, temperature):
         draft_ids = torch.empty(draft_steps, dtype=torch.long, device=self.device)
         draft_probas = torch.empty((draft_steps, self.vocab_size), device=self.device)
@@ -151,7 +159,8 @@ class SpeculativeDecoder:
             output = self.draft_model(current_input, past_key_values=draft_past, use_cache=True)
             draft_past = output.past_key_values
 
-            last_token_logits = output.logits[0, -1, :self.vocab_size]
+            logits = self._truncate_logits(output)
+            last_token_logits = logits[-1, :]
             next_token_id, probas = sample_and_get_probas(last_token_logits, temperature)
 
             sequence[current_length + i] = next_token_id
@@ -165,8 +174,9 @@ class SpeculativeDecoder:
         output = self.target_model(target_input, past_key_values=target_past, use_cache=True)
         target_past = output.past_key_values
 
-        logits = output.logits[0, -(draft_steps + 1) :, :self.vocab_size]
-        _, target_probas = sample_and_get_probas(logits, temperature)
+        logits = self._truncate_logits(output)
+        drafted_logits = logits[-(draft_steps + 1):, :]
+        _, target_probas = sample_and_get_probas(drafted_logits, temperature)
 
         return target_probas, target_past
 
@@ -267,7 +277,10 @@ class AutoregressiveDecoder:
         self.target_model = target_model.to(device)
         self.tokenizer = tokenizer
         self.device = device
-        self.vocab_size = len(self.tokenizer)
+        self.vocab_size = min(
+            len(self.tokenizer),
+            self.target_model.config.vocab_size
+            )
 
         self.model_name = model_name or _infer_model_name(self.target_model)
         self.num_parameters = num_parameters or _count_parameters(self.target_model)
@@ -290,7 +303,7 @@ class AutoregressiveDecoder:
             output = self.target_model(sequence[:prompt_length].unsqueeze(0), use_cache=True)
             past_key_values = output.past_key_values
 
-            last_token_logits = output.logits[0, -1, :self.vocab_size]
+            last_token_logits = self._truncate_logits(output)
             next_token_id, _ = sample_and_get_probas(last_token_logits, temperature)
             sequence[current_length] = next_token_id
             current_length += 1
@@ -300,7 +313,7 @@ class AutoregressiveDecoder:
                 output = self.target_model(current_input, past_key_values=past_key_values, use_cache=True)
                 past_key_values = output.past_key_values
 
-                last_token_logits = output.logits[0, -1, :self.vocab_size]
+                last_token_logits = self._truncate_logits(output)
                 next_token_id, _ = sample_and_get_probas(last_token_logits, temperature)
                 sequence[current_length] = next_token_id
                 current_length += 1
@@ -316,3 +329,6 @@ class AutoregressiveDecoder:
             "c": f"{self.c_value:.4f}" if self.c_value is not None else "N/A",
             "gamma": "N/A",
         }
+    
+    def _truncate_logits(self, output):
+        return output.logits[0, -1, :self.vocab_size]
