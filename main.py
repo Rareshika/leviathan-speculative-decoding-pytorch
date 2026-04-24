@@ -88,7 +88,7 @@ def main():
     )
 
     print("Starting benchmarks...")
-    benchmarker.run(max_tokens=TOKEN_LIMIT, iterations=3)
+    benchmarker.run(max_tokens=TOKEN_LIMIT, iterations=2)
 
 
 if __name__ == "__main__":
